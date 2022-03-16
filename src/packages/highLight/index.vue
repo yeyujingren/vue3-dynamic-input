@@ -21,8 +21,8 @@
 </template>
 
 <script lang="ts">
-import { nextTick, onMounted, onUnmounted, provide, reactive, ref, toRefs, watch } from 'vue';
-import { createHighLightNode, createTextNode } from '../../utils';
+import { nextTick, onMounted, onUnmounted, reactive, ref, toRefs, watch } from 'vue';
+import { createHighLightNode, createTextNode, postionToEnd } from '../../utils';
 import Selection from './selection.vue';
 
 interface State {
@@ -34,7 +34,8 @@ interface State {
   listVisible: boolean,
   isBlur: boolean,
   isFirst: boolean,
-  position: Range
+  position: Range,
+  selection: Selection
 }
 
 export default {
@@ -78,7 +79,8 @@ export default {
       listVisible: false,
       isBlur: false,
       isFirst: true,
-      position: null
+      position: null,
+      selection: window.getSelection()
     });
     const editor = ref<HTMLDivElement>(null);
 
@@ -136,12 +138,10 @@ export default {
         copyData = ev.clipboardData.getData('text');
       }
 
-
-      const selection = window.getSelection();
-      if (!selection.isCollapsed) {
-        selection.deleteFromDocument();
+      if (!state.selection.isCollapsed) {
+        state.selection.deleteFromDocument();
       }
-      const { startContainer } = selection.getRangeAt(0);
+      const { startContainer } = state.selection.getRangeAt(0);
 
 
       const range = document.createRange();
@@ -175,11 +175,11 @@ export default {
       fragment = null;
       const targetEle = ev.target as HTMLDivElement;
 
-      if (selection.isCollapsed) {
+      if (state.selection.isCollapsed) {
         // 并未选择范围，只是文本节点中间插入
         const referenceNode = startContainer as Text;
         const parentNode = targetEle;
-        const endOffset = selection.anchorOffset;
+        const endOffset = state.selection.anchorOffset;
         const p1 = referenceNode.data.slice(0, endOffset - 1);
         const p2 = referenceNode.data.slice(endOffset);
         referenceNode.data = p1;
@@ -197,7 +197,7 @@ export default {
         if (startContainer === targetEle) {
           // 相等，则标识删除的是一个ele节点，此时offSet标记的即为节点数
           // ev.target.childNodes[selection.anchorOffset];
-          targetEle.insertBefore(fragment_test, targetEle.childNodes[selection.anchorOffset]);
+          targetEle.insertBefore(fragment_test, targetEle.childNodes[state.selection.anchorOffset]);
         } else {
           targetEle.insertBefore(fragment_test, startContainer.nextSibling);
         }
@@ -211,13 +211,12 @@ export default {
       const event = new Event('input');
       ev.target.dispatchEvent(event);
       nextTick(() => {
-        const selection = window.getSelection();
         targetEle?.focus();
         const range = document.createRange();
         range.selectNodeContents(targetEle);
-        selection.removeAllRanges();
-        selection.addRange(range);
-        selection.collapseToEnd();
+        state.selection.removeAllRanges();
+        state.selection.addRange(range);
+        state.selection.collapseToEnd();
       });
     }
 
@@ -249,19 +248,14 @@ export default {
         parentNode.insertBefore(nextTextNode, node.nextSibling);
       }
 
+
       // 手动触发事件，防止v-modal监听数据和展示数据不一致
       // 因为此时已经手动插入了高亮模块，但是input不会监听到
       const event = new Event('input');
       parentNode.dispatchEvent(event);
       // 重置光标到高亮模块之后
       nextTick(() => {
-        const selection = window.getSelection();
-        const range = document.createRange();
-        range.collapse(false);
-        range.selectNode(node);
-        selection.removeAllRanges();
-        selection.addRange(range);
-        selection.collapseToEnd();
+        postionToEnd(node);
       });
     }
 
@@ -269,7 +263,6 @@ export default {
      * 输入框变更
      */
     function inputChangeHanler(val: InputEvent) {
-      // const exp = /<[^>.]*>([^<.]*)<\/[^>.]*>/g;
       const { data, target } = val;
       const curActiveEle = target as HTMLDivElement;
 
@@ -281,7 +274,7 @@ export default {
         closeSelectHandler();
       }
       // 保存当前光标的位置，用于后续光标重新定位。如果重新获取可能导致光标位置丢失
-      state.position = window.getSelection().getRangeAt(0);
+      state.position = state.selection.getRangeAt(0);
       emit('update:modelValue', curActiveEle.innerHTML);
     }
 

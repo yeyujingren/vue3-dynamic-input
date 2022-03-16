@@ -51,18 +51,12 @@ export default {
     let optimization = ref(isMacLike());
     const selectionWrapper = ref<HTMLDivElement>(null);
     function clickOptionHandler(item) {
-      console.log(11);
       emit('click', item);
     }
 
     onMounted(() => {
       document.body.appendChild(selectionWrapper.value);
     });
-
-    onUnmounted(() => {
-      const instance = getCurrentInstance();
-      console.log(instance.parent.attrs)
-    })
 
     return {
       isMacLike: optimization,

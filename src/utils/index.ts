@@ -24,3 +24,16 @@ export function createTextNode (content: string): Text {
 export function isMacLike(): boolean {
   return /(Mac|iPhone|iPad)/i.test(navigator.userAgent);
 }
+
+/**
+ * 光标定位到目标元素后面
+ */
+export function postionToEnd(target: Element) {
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  const range = document.createRange();
+  range.collapse(false);
+  range.selectNode(target);
+  selection.addRange(range);
+  selection.collapseToEnd();
+}
