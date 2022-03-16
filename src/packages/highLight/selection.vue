@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="selectionWrapper"
     :style="`width: ${curSelectionPosition.width}px; top: ${curSelectionPosition.top}px; left: ${curSelectionPosition.left}px;`"
     :class="listVisible ? 'show model' : 'hidden model'"
   >
@@ -19,8 +20,9 @@
   </div>
 </template>
 
-<script>
-import { isMacLick } from "../../utils";
+<script lang="ts">
+import { getCurrentInstance, getCurrentScope, inject, onMounted, onUnmounted, ref } from 'vue';
+import { isMacLike } from "../../utils";
 export default {
   props: {
     options: {
@@ -44,21 +46,29 @@ export default {
       default: "label",
     },
   },
-  data() {
+  emits: ['click'],
+  setup(prop, {emit}) {
+    let optimization = ref(isMacLike());
+    const selectionWrapper = ref<HTMLDivElement>(null);
+    function clickOptionHandler(item) {
+      console.log(11);
+      emit('click', item);
+    }
+
+    onMounted(() => {
+      document.body.appendChild(selectionWrapper.value);
+    });
+
+    onUnmounted(() => {
+      const instance = getCurrentInstance();
+      console.log(instance.parent.attrs)
+    })
+
     return {
-      isMacLike: isMacLick(),
-    };
-  },
-  destroyed() {
-    this.$el.parentNode.removeChild(this.$el);
-  },
-  mounted() {
-    document.body.appendChild(this.$el);
-  },
-  methods: {
-    clickOptionHandler(item) {
-      this.$parent.clickOptionHandler(item);
-    },
+      isMacLike: optimization,
+      clickOptionHandler,
+      selectionWrapper
+    }
   },
 };
 </script>

@@ -6,6 +6,12 @@ import { watch } from '@vue/runtime-core';
 import HelloWorld from './packages/HelloWorld.vue';
 import HighLight from './packages/highLight/index.vue';
 let value = ref('');
+let options = ref([
+  {
+    value: 1,
+    label: 'hahah'
+  }
+])
 watch(
   () => value.value,
   (v) => {
@@ -19,6 +25,7 @@ watch(
 
 <template>
   <HighLight
+    :options="options"
     v-model="value"
   />
 </template>

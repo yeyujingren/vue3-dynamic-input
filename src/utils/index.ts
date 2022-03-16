@@ -21,6 +21,6 @@ export function createTextNode (content: string): Text {
 /**
  * 平台判断
  */
-export function isMacLick(): boolean {
+export function isMacLike(): boolean {
   return /(Mac|iPhone|iPad)/i.test(navigator.userAgent);
 }

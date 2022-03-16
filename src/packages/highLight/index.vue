@@ -15,13 +15,28 @@
       :cur-selection-position="curSelectionPosition"
       :opt-val-name="optValName"
       :opt-label-name="optLabelName"
+      @click="clickOptionHandler"
     />
   </div>
 </template>
 
-<script >
+<script lang="ts">
+import { nextTick, onMounted, onUnmounted, provide, reactive, ref, toRefs, watch } from 'vue';
 import { createHighLightNode, createTextNode } from '../../utils';
 import Selection from './selection.vue';
+
+interface State {
+  curSelectionPosition: {
+    left: number,
+    top: number,
+    width: number
+  },
+  listVisible: boolean,
+  isBlur: boolean,
+  isFirst: boolean,
+  position: Range
+}
+
 export default {
   props: {
     options: {
@@ -48,55 +63,68 @@ export default {
       type: String
     }
   },
-  emits: ['update:modelValue'],
+  emits: ['update:modelValue', 'blur'],
   components: {
     Selection
   },
-  data() {
-    return {
-      curSelectionPosition: {},
+
+  setup(props, {emit}) {
+    const state = reactive<State>({
+      curSelectionPosition: {
+        left: 0,
+        top: 0,
+        width: 0
+      },
       listVisible: false,
-      selection: window.getSelection(),
-      blur: false,
+      isBlur: false,
       isFirst: true,
       position: null
-    };
-  },
-  created() {
-    document.addEventListener('click', this.closeSelectHandler, false);
-  },
-  destroyed() {
-    document.removeEventListener('click', this.closeSelectHandler);
-  },
-  watch: {
-    blur: {
-      handler(val) {
-        if (val) {
-          this.$emit('blur', this.$refs.editor.innerHTML);
-        }
-      },
-      immediate: true
-    },
-    // fix：http://lucp.lkcoffee.com/test/Bug-59172
-    value: {
-      handler(val) {
-        if (this.isFirst && val) {
-          this.isFirst = false;
-          this.$nextTick(() => {
-            this.$refs.editor.innerHTML = val;
-          });
-        };
-        this.$nextTick(() => {
-          this.setSelectionPostion();
-        });
-      },
-      immediate: true,
-      deep: true
+    });
+    const editor = ref<HTMLDivElement>(null);
+
+     /**
+     * 关闭选择框
+     */
+    function closeSelectHandler() {
+      if (state.listVisible) {
+        state.listVisible = false;
+      }
     }
-  },
-  methods: {
+
+     /**
+     * 设置下拉框位置
+     */
+    function setSelectionPostion() {
+      // v0.1.2 更新： 取消之前通过字符长度来定位下拉框位置，采用获取编辑框位置来直接设置下拉框位置
+      // 以防止出现文案超长换行之后，通过获取偏移量确定下拉框位置异常问题
+      const { top, left, width, height } = editor.value.getBoundingClientRect();
+      const scrollTop = document.documentElement.scrollTop;
+      state.curSelectionPosition = {
+        top: top + scrollTop + height,
+        left,
+        width
+      };
+    }
+    /**
+     * 打开选择框
+     */
+    function openSelectHandler() {
+      state.listVisible = true;
+    }
+
+    function blurHandler() {
+      state.isBlur = true;
+    }
+
+    function focusHandler() {
+      // 首次编辑如果框内并没有内容，此时也会触发手动变更innerHTML的情况，会导致光标位置异常，
+      // 因此编辑时，需要将标识设置为false
+      state.isFirst = false;
+      state.isBlur = false;
+    }
+
     /** 复制触发 */
-    pasteHandler(ev) {
+    function pasteHandler(ev: ClipboardEvent) {
       ev.stopPropagation();
       ev.preventDefault();
       const classExp = /dynamic-wrapper/;
@@ -118,17 +146,15 @@ export default {
 
       const range = document.createRange();
       let fragment = range.createContextualFragment(copyData);
-      // console.log(fragment.childNodes);
-      // let innerHTML = '';
       const fragment_test = document.createDocumentFragment();
       for (let i = 0; i < fragment.childNodes.length; i++) {
         // 复制模板中有用数据仅为span标签（因为@高亮模块也是span标签）， 故span标签即为目标字段
-        const curNode = fragment.childNodes[i];
+        let curNode = fragment.childNodes[i];
         if (curNode.nodeName === 'SPAN') {
-          const curNodeText = curNode.innerText;
+          const curNodeText = (curNode as HTMLSpanElement).innerHTML;
           // 根据标签上是否存在约定className，判断是否是@高亮模块
-          if (classExp.test(curNode?.className)) {
-            fragment_test.appendChild(createHighLightNode(curNodeText, false));
+          if (classExp.test((curNode as HTMLSpanElement)?.className)) {
+            fragment_test.appendChild(createHighLightNode(curNodeText, props.symbolWord, false));
             // innerHTML += `<span class="dynamic-wrapper" contenteditable="false">${curNodeText}</span>`;
           } else {
             // innerHTML += curNodeText;
@@ -139,19 +165,20 @@ export default {
           // https://docs.microsoft.com/en-us/windows/win32/dataxchg/html-clipboard-format
           // 仅匹配纯换行的文本节点
           const exp = /^(\n)*$/g;
-          if (!exp.test(curNode.data)) {
+          if (!exp.test((curNode as Text).data)) {
             // innerHTML += curNode.data;
-            fragment_test.appendChild(createTextNode(curNode.data));
+            fragment_test.appendChild(createTextNode((curNode as Text).data));
           };
         }
       }
 
       fragment = null;
+      const targetEle = ev.target as HTMLDivElement;
 
       if (selection.isCollapsed) {
         // 并未选择范围，只是文本节点中间插入
-        const referenceNode = startContainer;
-        const parentNode = ev.target;
+        const referenceNode = startContainer as Text;
+        const parentNode = targetEle;
         const endOffset = selection.anchorOffset;
         const p1 = referenceNode.data.slice(0, endOffset - 1);
         const p2 = referenceNode.data.slice(endOffset);
@@ -167,39 +194,40 @@ export default {
         }
       } else {
         // 替换选区
-        if (startContainer === ev.target) {
+        if (startContainer === targetEle) {
           // 相等，则标识删除的是一个ele节点，此时offSet标记的即为节点数
           // ev.target.childNodes[selection.anchorOffset];
-          ev.target.insertBefore(fragment_test, ev.target.childNodes[selection.anchorOffset]);
+          targetEle.insertBefore(fragment_test, targetEle.childNodes[selection.anchorOffset]);
         } else {
-          ev.target.insertBefore(fragment_test, startContainer.nextSibling);
+          targetEle.insertBefore(fragment_test, startContainer.nextSibling);
         }
       }
 
       // 合并文本节点，删除空节点
-      ev.target.normalize();
+      targetEle.normalize();
 
       // 因为在开始的时候已经取消掉了默认事件，所以不再会触发input事件，因此，需要手动触发。
       // 以保证及时进行校验
       const event = new Event('input');
       ev.target.dispatchEvent(event);
-      this.$nextTick(() => {
-        ev.target?.focus();
+      nextTick(() => {
+        const selection = window.getSelection();
+        targetEle?.focus();
         const range = document.createRange();
-        range.selectNodeContents(ev.target);
-        this.selection.removeAllRanges();
-        this.selection.addRange(range);
-        this.selection.collapseToEnd();
+        range.selectNodeContents(targetEle);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        selection.collapseToEnd();
       });
-    },
+    }
 
     /**
      * 点击列表项之后插入到当前光标位置
      */
-    clickOptionHandler(item) {
-      const node = createHighLightNode(item[this.optLabelName]);
+    function clickOptionHandler(item: {[k: string]: string}) {
+      const node = createHighLightNode(item[props.optLabelName]);
       // 当前光标所在选区
-      const referenceNode = this.position.startContainer;
+      const referenceNode = state.position.startContainer as Text;
       // 获取当前选区的父节点方便后续字符插入
       const parentNode = referenceNode.parentNode;
       // 获取当前光标所在的位置（@符号之后的位置）
@@ -207,7 +235,7 @@ export default {
       // 其次，因为我们的@模块插入有两种可能：
       // a、在末尾插入：此时我们只需要删除末尾@符号即可
       // b、在其他地方插入： 此时我们需要将文本节点分割成两份，并在其中间插入高亮模块即可
-      const endOffset = this.position.endOffset;
+      const endOffset = state.position.endOffset;
       const p1 = referenceNode.data.slice(0, endOffset - 1);
       const p2 = referenceNode.data.slice(endOffset);
       referenceNode.data = p1;
@@ -226,99 +254,79 @@ export default {
       const event = new Event('input');
       parentNode.dispatchEvent(event);
       // 重置光标到高亮模块之后
-      this.$nextTick(() => {
+      nextTick(() => {
+        const selection = window.getSelection();
         const range = document.createRange();
         range.collapse(false);
         range.selectNode(node);
-        this.selection.removeAllRanges();
-        this.selection.addRange(range);
-        this.selection.collapseToEnd();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        selection.collapseToEnd();
       });
-    },
+    }
 
     /**
      * 输入框变更
      */
-    inputChangeHanler(val) {
+    function inputChangeHanler(val: InputEvent) {
       // const exp = /<[^>.]*>([^<.]*)<\/[^>.]*>/g;
       const { data, target } = val;
-      const curActiveEle = target;
+      const curActiveEle = target as HTMLDivElement;
 
       // 判断
-      if (data === this.symbolWord) {
-        this.openSelectHandler();
+      if (data === props.symbolWord) {
+        openSelectHandler();
       } else {
         // 其他情况list框重置为隐藏
-        this.closeSelectHandler();
+        closeSelectHandler();
       }
       // 保存当前光标的位置，用于后续光标重新定位。如果重新获取可能导致光标位置丢失
-      const position = this.selection.getRangeAt(0);
-      this.position = position;
-      this.$emit('update', curActiveEle.innerHTML);
-    },
+      state.position = window.getSelection().getRangeAt(0);
+      emit('update:modelValue', curActiveEle.innerHTML);
+    }
 
-    /**
-     * 获取真实偏移量
-     */
-    getRealOffset(baseOffset, baseNode, ele) {
-      const nodes = ele.childNodes;
-      let offset = baseOffset;
-      // 遍历父节点下的所有节点，直到找到输入@对应的锚节点,记下标为n，
-      // 则realOffset = sum(i.length) + offset; i 属于 [0, n-1]
-      for (const i of nodes) {
-        if (i !== baseNode) {
-          const nodeType = i.nodeType;
-          if (nodeType === 3) {
-            // text 节点
-            offset += i.length;
-          } else {
-            offset += i.innerText.length || 0;
-          }
-        } else {
-          break;
+    onMounted(() => {
+      document.addEventListener('click', closeSelectHandler, false);
+    });
+    onUnmounted(() => {
+      document.removeEventListener('click', closeSelectHandler);
+    })
+
+    watch(
+      () => state.isBlur,
+      (val) => {
+        if (val) {
+          emit('blur', editor.value.innerHTML);
+        }
+        nextTick(() => {
+          setSelectionPostion()
+        })
+      },
+      {
+        immediate: true
+      }
+    );
+    watch(
+      () => props.modelValue,
+      (v) => {
+        if (state.isFirst && v) {
+          state.isFirst = false;
+          nextTick(() => {
+            editor.value.innerHTML = v;
+          })
         }
       }
-      return offset;
-    },
+    )
 
-    /**
-     * 设置下拉框位置
-     */
-    setSelectionPostion() {
-      // v0.1.2 更新： 取消之前通过字符长度来定位下拉框位置，采用获取编辑框位置来直接设置下拉框位置
-      // 以防止出现文案超长换行之后，通过获取偏移量确定下拉框位置异常问题
-      const { top, left, width, height } = this.$refs.editor.getBoundingClientRect();
-      const scrollTop = document.documentElement.scrollTop;
-      this.curSelectionPosition = {
-        top: top + scrollTop + height,
-        left,
-        width
-      };
-    },
-
-    /**
-     * 关闭选择框
-     */
-    closeSelectHandler() {
-      this.listVisible = false;
-    },
-
-    /**
-     * 打开选择框
-     */
-    openSelectHandler() {
-      this.listVisible = true;
-    },
-
-    blurHandler() {
-      this.blur = true;
-    },
-
-    focusHandler() {
-      // 首次编辑如果框内并没有内容，此时也会触发手动变更innerHTML的情况，会导致光标位置异常，
-      // 因此编辑时，需要将标识设置为false
-      this.isFirst = false;
-      this.blur = false;
+    return {
+      ...toRefs(state),
+      editor,
+      openSelectHandler,
+      blurHandler,
+      focusHandler,
+      pasteHandler,
+      inputChangeHanler,
+      clickOptionHandler
     }
   }
 };
